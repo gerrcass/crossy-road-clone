@@ -1,0 +1,1798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#79c9f2">
+<meta name="description" content="A voxel-style Crossy Road clone built with Three.js — hop, dodge traffic, ride logs, collect coins.">
+<title>Crossy Road — Voxel Clone</title>
+<link rel="icon" href="assets/icon.svg">
+<style>
+/* ==========================================================================
+   UI / HUD styling. The 3D scene is drawn on #game; everything else is DOM.
+   ========================================================================== */
+:root{
+  --ink:#232331;
+  --ink-soft:rgba(35,35,49,.62);
+  --white:#fff;
+  --shadow:0 3px 0 rgba(35,35,49,.22), 0 10px 26px rgba(35,35,49,.18);
+}
+*{box-sizing:border-box;}
+html,body{
+  margin:0;padding:0;height:100%;width:100%;overflow:hidden;
+  background:#9ed8f7;
+  font-family:ui-rounded,"Nunito","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  -webkit-user-select:none;user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:none;overscroll-behavior:none;
+}
+canvas#game{position:fixed;inset:0;display:block;width:100%;height:100%;}
+
+/* ---------- HUD ---------- */
+#hud{
+  position:fixed;inset:0;pointer-events:none;z-index:10;
+  padding:max(12px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));
+  display:flex;justify-content:space-between;align-items:flex-start;
+}
+#hudLeft{display:flex;flex-direction:column;align-items:flex-start;gap:2px;}
+#score{
+  font-size:clamp(40px,9.5vw,74px);font-weight:900;line-height:.92;color:#fff;
+  letter-spacing:-.02em;
+  text-shadow:0 3px 0 rgba(35,35,49,.30),0 6px 16px rgba(35,35,49,.28);
+  transform-origin:0 70%;
+}
+#score.pop{animation:pop .22s cubic-bezier(.2,1.6,.4,1);}
+@keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.18)}100%{transform:scale(1)}}
+#bestLine{
+  font-size:clamp(10px,2.6vw,13px);font-weight:900;letter-spacing:.14em;text-transform:uppercase;
+  color:#fff;opacity:.9;text-shadow:0 2px 0 rgba(35,35,49,.28);
+}
+#hudRight{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+#coinPill{
+  display:flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.92);border-radius:999px;
+  padding:6px 13px 6px 8px;box-shadow:var(--shadow);
+  font-weight:900;font-size:clamp(15px,4vw,20px);color:var(--ink);
+}
+#coinPill svg{width:1.35em;height:1.35em;display:block;filter:drop-shadow(0 1px 0 rgba(0,0,0,.18));}
+.coinPop{animation:pop .24s cubic-bezier(.2,1.6,.4,1);}
+#btns{display:flex;gap:8px;}
+.iconBtn{
+  pointer-events:auto;cursor:pointer;
+  width:40px;height:40px;border-radius:14px;border:0;
+  background:rgba(255,255,255,.92);box-shadow:var(--shadow);
+  display:grid;place-items:center;color:var(--ink);
+  transition:transform .08s ease;
+}
+.iconBtn:active{transform:translateY(2px) scale(.97);}
+.iconBtn svg{width:20px;height:20px;}
+.iconBtn[data-off="true"]{opacity:.55;}
+
+/* ---------- Overlays ---------- */
+.overlay{
+  position:fixed;inset:0;z-index:20;display:grid;place-items:center;
+  padding:20px;
+  background:radial-gradient(120% 90% at 50% 42%,rgba(20,32,54,.05),rgba(20,32,54,.42));
+  -webkit-backdrop-filter:blur(7px) saturate(1.05);backdrop-filter:blur(7px) saturate(1.05);
+  transition:opacity .26s ease, visibility .26s ease;
+}
+.overlay.hidden{opacity:0;visibility:hidden;pointer-events:none;}
+.card{
+  width:min(440px,92vw);text-align:center;
+  background:linear-gradient(#fffdf6,#fff6e2);
+  border-radius:26px;padding:26px 22px 24px;
+  box-shadow:0 8px 0 rgba(35,35,49,.14),0 26px 60px rgba(20,32,54,.34);
+  border:3px solid #fff;
+  transform:translateY(0);transition:transform .3s cubic-bezier(.2,1.4,.4,1);
+}
+.overlay.hidden .card{transform:translateY(12px) scale(.97);}
+.title{
+  font-size:clamp(30px,8.5vw,44px);font-weight:900;letter-spacing:-.02em;line-height:1;
+  color:#fff;margin:2px 0 4px;
+  text-shadow:0 3px 0 #f5a623,0 6px 0 rgba(35,35,49,.22),0 12px 26px rgba(35,35,49,.25);
+}
+.title.go{text-shadow:0 3px 0 #ef5a5a,0 6px 0 rgba(35,35,49,.22),0 12px 26px rgba(35,35,49,.25);}
+.cause{
+  display:inline-block;margin:6px 0 0;padding:5px 12px;border-radius:999px;
+  background:#ffeec9;color:#a86412;font-weight:900;font-size:clamp(11px,3vw,13px);
+  letter-spacing:.12em;text-transform:uppercase;
+}
+.hint{margin:14px 2px 0;color:var(--ink-soft);font-weight:700;font-size:clamp(12px,3.4vw,14px);line-height:1.55;}
+.hint b{color:var(--ink);}
+.keys{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:14px 0 0;}
+.key{
+  display:flex;align-items:center;gap:7px;background:#fff;border-radius:12px;padding:7px 11px;
+  font-weight:900;font-size:clamp(10px,2.9vw,12px);color:var(--ink-soft);
+  box-shadow:0 2px 0 rgba(35,35,49,.13);letter-spacing:.04em;
+}
+.key kbd{
+  font-family:inherit;font-weight:900;color:var(--ink);background:#f1f3f7;
+  border-radius:6px;padding:2px 6px;box-shadow:0 2px 0 rgba(35,35,49,.16);font-size:1.05em;
+}
+.stats{display:flex;justify-content:center;gap:10px;margin:18px 0 0;}
+.stat{
+  flex:1;max-width:150px;background:#fff;border-radius:18px;padding:11px 8px 9px;
+  box-shadow:0 3px 0 rgba(35,35,49,.12) inset,0 4px 0 rgba(35,35,49,.10);
+}
+.stat .k{font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);}
+.stat .v{font-size:clamp(24px,7vw,34px);font-weight:900;color:var(--ink);line-height:1.1;}
+.stat.coin .v{color:#e7980d;}
+.badge{
+  display:none;margin:14px auto 0;width:max-content;
+  background:linear-gradient(#ffe27a,#ffc22e);color:#8a5300;
+  font-weight:900;font-size:clamp(11px,3.2vw,13px);letter-spacing:.14em;text-transform:uppercase;
+  padding:6px 14px;border-radius:999px;box-shadow:0 3px 0 rgba(138,83,0,.25);
+  animation:badgeIn .5s cubic-bezier(.2,1.6,.4,1);
+}
+.badge.show{display:block;}
+@keyframes badgeIn{0%{transform:scale(.6) rotate(-6deg);opacity:0}100%{transform:none;opacity:1}}
+.btn{
+  pointer-events:auto;cursor:pointer;border:0;
+  margin:20px auto 0;display:flex;align-items:center;gap:10px;
+  background:linear-gradient(#8ee06a,#5dbf3f);color:#fff;
+  font-family:inherit;font-weight:900;font-size:clamp(15px,4.4vw,19px);letter-spacing:.06em;text-transform:uppercase;
+  padding:14px 30px;border-radius:18px;
+  box-shadow:0 5px 0 #3f9c2b,0 12px 22px rgba(35,35,49,.22);
+  transition:transform .07s ease,box-shadow .07s ease;
+}
+.btn:active{transform:translateY(4px);box-shadow:0 1px 0 #3f9c2b,0 6px 14px rgba(35,35,49,.2);}
+.btn svg{width:1.15em;height:1.15em;}
+.credit{margin-top:12px;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:rgba(35,35,49,.3);}
+
+/* ---------- Loading / error ---------- */
+#boot{
+  position:fixed;inset:0;z-index:40;display:grid;place-items:center;
+  background:#9ed8f7;color:#fff;font-weight:900;letter-spacing:.1em;text-transform:uppercase;text-align:center;
+  transition:opacity .4s ease;
+}
+#boot.hidden{opacity:0;pointer-events:none;}
+.spinner{
+  width:44px;height:44px;margin:0 auto 16px;border-radius:50%;
+  border:5px solid rgba(255,255,255,.4);border-top-color:#fff;animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#boot .msg{font-size:13px;line-height:1.7;max-width:88vw;text-transform:none;letter-spacing:0;font-weight:700;}
+@media (prefers-reduced-motion:reduce){ *{animation-duration:.001s !important;} }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ======================= HUD ======================= -->
+<div id="hud">
+  <div id="hudLeft">
+    <div id="score">0</div>
+    <div id="bestLine">Best <span id="best">0</span></div>
+  </div>
+  <div id="hudRight">
+    <div id="coinPill">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" fill="#f5a623"/>
+        <circle cx="12" cy="12" r="7.6" fill="#ffd447"/>
+        <rect x="10.4" y="7.4" width="3.2" height="9.2" rx="1.1" fill="#f5a623"/>
+      </svg>
+      <span id="coins">0</span>
+    </div>
+    <div id="btns">
+      <button class="iconBtn" id="btnSound" title="Sound on/off" aria-label="Toggle sound">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9h3l4.5-3.6v13.2L7 15H4z" fill="currentColor" stroke="none"/>
+          <path id="sndWave1" d="M15.5 8.6a4.6 4.6 0 0 1 0 6.8"/>
+          <path id="sndWave2" d="M18 6a8 8 0 0 1 0 12"/>
+          <path id="sndX" d="M16.5 9.5l5 5m0-5l-5 5" style="display:none"/>
+        </svg>
+      </button>
+      <button class="iconBtn" id="btnCam" title="Toggle camera style" aria-label="Toggle camera style">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 8.5l9-4.8 9 4.8-9 4.8z"/><path d="M3 14l9 4.8 9-4.8"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= START ======================= -->
+<div class="overlay" id="startScreen">
+  <div class="card">
+    <div class="title">CROSSY ROAD</div>
+    <div class="hint">Hop as far as you can. Don't get flattened, and don't drown.</div>
+    <div class="keys">
+      <span class="key"><kbd>&uarr;</kbd><kbd>W</kbd> forward</span>
+      <span class="key"><kbd>&larr;</kbd><kbd>&darr;</kbd><kbd>&rarr;</kbd> move</span>
+      <span class="key">swipe / tap on mobile</span>
+    </div>
+    <button class="btn" id="btnPlay">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2v13.6L19 12z"/></svg>
+      Play
+    </button>
+    <div class="credit">Three.js &middot; no assets, all procedural</div>
+  </div>
+</div>
+
+<!-- ======================= GAME OVER ======================= -->
+<div class="overlay hidden" id="overScreen">
+  <div class="card">
+    <div class="title go">GAME OVER</div>
+    <div><span class="cause" id="cause">SPLAT!</span></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Score</div><div class="v" id="finalScore">0</div></div>
+      <div class="stat coin"><div class="k">Coins</div><div class="v" id="finalCoins">0</div></div>
+      <div class="stat"><div class="k">Best</div><div class="v" id="finalBest">0</div></div>
+    </div>
+    <div class="badge" id="newBest">New best!</div>
+    <button class="btn" id="btnAgain">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.6 6.3"/><path d="M20 4.5V11h-6.5"/></svg>
+      Play again
+    </button>
+    <div class="hint">or press <b>Space</b> / <b>tap</b></div>
+  </div>
+</div>
+
+<!-- ======================= BOOT ======================= -->
+<div id="boot">
+  <div>
+    <div class="spinner"></div>
+    <div class="msg" id="bootMsg">Loading Three.js&hellip;</div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   CROSSY ROAD — VOXEL CLONE
+   ----------------------------------------------------------------------------
+   A complete, dependency-free (except Three.js from a CDN) endless hopper.
+
+   Layout of this file:
+     0. Bootstrap: load Three.js as an ES module, with CDN fallbacks
+     1. Config & tiny math helpers
+     2. Shared geometry / material library (everything is procedural primitives)
+     3. Prop factories (chicken, trees, rocks, cars, trucks, trains, logs, pads)
+     4. Row generation (procedural, chunk based) + world bookkeeping & cleanup
+     5. Player controller (discrete hops, buffered input, collision rules)
+     6. Death sequences (splat / drown / swept away / hawk grab)
+     7. Particles, coin pickup FX, camera rig, audio (WebAudio, no samples)
+     8. Game state machine, HUD wiring, input, resize, main loop
+   ========================================================================== */
+(async function () {
+'use strict';
+
+/* ==========================================================================
+   0. BOOTSTRAP — Three.js (ESM) from a CDN, with fallbacks + friendly error
+   ========================================================================== */
+const THREE_VERSION = '0.186.1';
+const CDNS = [
+  'https://unpkg.com/three@' + THREE_VERSION + '/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@' + THREE_VERSION + '/build/three.module.js',
+  'https://esm.sh/three@' + THREE_VERSION,
+  'https://cdn.skypack.dev/three@' + THREE_VERSION,
+];
+// Older but API-compatible classic build, used only if ES-module imports are
+// unavailable — e.g. a browser refusing cross-origin modules on a file:// page.
+const UMD_CDNS = [
+  'https://unpkg.com/three@0.155.0/build/three.min.js',
+  'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js',
+];
+
+const bootEl = document.getElementById('boot');
+const bootMsg = document.getElementById('bootMsg');
+
+function loadClassicScript(src) {
+  return new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+let THREE = null;
+for (const url of CDNS) {
+  try {
+    const mod = await import(url);
+    if (mod && mod.Scene) { THREE = mod; break; }
+  } catch (err) {
+    console.warn('[crossy] three.js failed to load from', url, err);
+  }
+}
+if (!THREE) {
+  // fallback path: plain <script> tag, no module machinery involved
+  bootMsg.textContent = 'Retrying with a classic build\u2026';
+  for (const src of UMD_CDNS) {
+    const ok = await loadClassicScript(src);
+    if (ok && window.THREE && window.THREE.Scene) { THREE = window.THREE; break; }
+  }
+}
+if (!THREE) {
+  bootEl.querySelector('.spinner').style.display = 'none';
+  bootMsg.innerHTML = '<b>Could not load Three.js from a CDN.</b><br>' +
+    'Check your internet connection, then reload.<br><br>' +
+    'If you opened this file directly from disk, serve the folder over HTTP instead, e.g.<br>' +
+    '<code>npx serve .</code> or <code>python3 -m http.server</code>';
+  return;
+}
+
+/* ==========================================================================
+   1. CONFIG & HELPERS
+   ========================================================================== */
+const CFG = {
+  // The visible ground strip is deliberately much wider than the player's play
+  // area: the camera looks along a diagonal, so it can see ~25 tiles sideways at
+  // the player's own row. Terrain (and traffic) must reach past that, otherwise
+  // you would see cars driving through the void at the edge of the world.
+  TERRAIN_HALF: 32,   // how wide the generated slabs / lanes are
+  TRACK_HALF: 34,     // road & water traffic loops inside x in [-34 .. 34]
+  DECOR_HALF: 15,     // trees, rocks, tufts and coins only spawn inside this
+  LAT_WALL: 10.5,     // player cannot walk past this |x|
+  CARRY_DEATH: 12.2,  // if a log carries the player past this |x| -> swept away
+  AHEAD: 34,          // how many rows to keep generated in front of the player
+  BEHIND: 18,         // how many rows to keep alive behind the player (the ortho
+                      // camera can see ~15 rows downhill, so this must clear that)
+  BACK_LIMIT: 7,      // dying happens when you go this far behind your best row
+  HOP_TIME: 0.135,    // seconds per hop (snappy!)
+  HOP_HEIGHT: 0.44,
+  INPUT_BUFFER: 2,    // queued moves while a hop is in flight
+  // isometric-ish rig: a narrow FOV from far away keeps rows a similar size
+  // (a big FOV up close would stretch the row under the player's feet)
+  CAM: { x: 15.2, y: 19.2, z: -18.4, look: 3.6, fov: 34 },
+  FOG_NEAR: 38,       // the player sits ~30 units from the camera, so stay clear of that
+  FOG_FAR: 62,        // dense enough to swallow the far edge of the generated world
+  SKY_TOP: 0x63bff0,
+  SKY_HORIZON: 0xcfeaff,
+  SKY_GROUND: 0xbfe3a4,
+};
+
+const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));  // framerate independent
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const chance = (p) => Math.random() < p;
+const mod = (n, m) => ((n % m) + m) % m;
+function dampAngle(a, b, lambda, dt) {                  // shortest-arc angle damping
+  let d = mod(b - a + Math.PI, Math.PI * 2) - Math.PI;
+  return a + d * (1 - Math.exp(-lambda * dt));
+}
+
+/* ==========================================================================
+   2. RENDERER / SCENE / LIGHTS  (all geometry & materials are shared + built in code)
+   ========================================================================== */
+const canvas = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;   // PCFSoftShadowMap was removed in recent three.js
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(CFG.SKY_HORIZON, CFG.FOG_NEAR, CFG.FOG_FAR);
+
+/* --- sky dome: a big inverted sphere with a lush gradient baked into vertex colors --- */
+(function buildSky() {
+  const geo = new THREE.SphereGeometry(320, 24, 16);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const top = new THREE.Color(CFG.SKY_TOP), hor = new THREE.Color(CFG.SKY_HORIZON), gnd = new THREE.Color(CFG.SKY_GROUND);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const t = pos.getY(i) / 320;                       // -1 (down) .. 1 (zenith)
+    if (t >= 0) c.copy(hor).lerp(top, Math.pow(clamp(t * 1.55, 0, 1), 0.75));
+    else c.copy(hor).lerp(gnd, clamp(-t * 2.4, 0, 1));
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false,
+  }));
+  sky.renderOrder = -1;
+  scene.add(sky);
+})();
+
+/* --- lights: soft hemisphere fill + one shadow-casting sun that follows the player --- */
+const hemi = new THREE.HemisphereLight(0xdff2ff, 0x9ec97a, 0.62);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff4d6, 0.78);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 90;
+sun.shadow.camera.updateProjectionMatrix();     // required after changing the shadow frustum
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.035;
+scene.add(sun);
+scene.add(sun.target);
+const SUN_OFFSET = new THREE.Vector3(12.5, 30, 9);
+
+/* --- cameras: perspective (default) and orthographic, toggled at runtime --- */
+const persp = new THREE.PerspectiveCamera(CFG.CAM.fov, 1, 0.6, 400);
+const ortho = new THREE.OrthographicCamera(-20, 20, 20, -20, -200, 400);
+let camera = persp;
+let useOrtho = false;
+
+/* ==========================================================================
+   2b. SHARED GEOMETRY + MATERIAL LIBRARY
+   Units are tiles: one tile is 1.0 world unit wide, ground level is y = 0.
+   ========================================================================== */
+const GEO = {
+  box: new THREE.BoxGeometry(1, 1, 1),
+  cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1),      // logs
+  disc: new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1),     // coins
+  pad: new THREE.CylinderGeometry(0.5, 0.5, 1, 12, 1),      // lily pads
+  rock: new THREE.IcosahedronGeometry(0.5, 0),
+  ico: new THREE.IcosahedronGeometry(0.5, 1),
+  cone: new THREE.ConeGeometry(0.5, 1, 6, 1),
+  plane: new THREE.PlaneGeometry(1, 1),
+};
+
+/** Cheap material cache so hundreds of props share a handful of GPU programs. */
+const _matCache = new Map();
+function mat(color, opts) {
+  const key = color + '|' + (opts && opts.flat ? 'f' : '') + (opts && opts.emissive ? 'e' + opts.emissive : '') +
+              (opts && opts.opacity ? 'o' + opts.opacity : '') +
+              (opts && opts.side === THREE.DoubleSide ? 'd' : '');
+  if (_matCache.has(key)) return _matCache.get(key);
+  const m = new THREE.MeshLambertMaterial({
+    color,
+    flatShading: !!(opts && opts.flat),
+    transparent: !!(opts && opts.opacity),
+    opacity: opts && opts.opacity ? opts.opacity : 1,
+    side: opts && opts.side ? opts.side : THREE.FrontSide,
+  });
+  if (opts && opts.emissive) m.emissive = new THREE.Color(opts.emissive);
+  _matCache.set(key, m);
+  return m;
+}
+
+const PAL = {
+  grassA: 0x84cf55, grassB: 0x7dc94f, grassPatch: 0x7ac74c,
+  road: 0x4b5057, roadEdge: 0x41464c, dash: 0xf2f0e4,
+  gravel: 0x77736d, sleeper: 0x6a655f, rail: 0x9aa2a8,
+  waterBed: 0x1d5f8f, water: 0x3fa4e6, waterTop: 0x59b8f0,
+  trunk: 0x8a5a34, leafA: 0x4fae4a, leafB: 0x3f9a3f, leafC: 0x63c04f,
+  rock: 0x9aa0a6, rockDark: 0x7c8288,
+  log: 0xb57a45, pad: 0x3fa060, padTop: 0x4fb872, flower: 0xf58fb4,
+  chicken: 0xfdfdfd, chickenShade: 0xebe7de, beak: 0xf5a623, comb: 0xe0383c,
+  coin: 0xffd447, coinDark: 0xf5a623,
+  warn: 0xe0383c, warnOff: 0x5a3b3b, post: 0x4a4f56,
+  eagleBody: 0x6b4a2f, eagleWing: 0x54371f, eagleHead: 0xf5f0e6,
+};
+const CAR_COLORS = [0xe4572e, 0x2e86ab, 0xf7c948, 0x8e44ad, 0x27ae60, 0xe74c3c, 0xecf0f1, 0x34495e, 0xff7f50, 0x1abc9c];
+
+/* --- small mesh helpers ------------------------------------------------- */
+function box(w, h, d, material, x, y, z) {
+  const m = new THREE.Mesh(GEO.box, material);
+  m.scale.set(w, h, d);
+  if (x !== undefined) m.position.set(x, y, z);
+  return m;
+}
+function shadowOn(m, cast, receive) { m.castShadow = cast !== false; m.receiveShadow = receive !== false; return m; }
+
+/* ==========================================================================
+   3. PROP FACTORIES
+   ========================================================================== */
+
+/* --- the player: a blocky voxel chicken ---------------------------------- */
+function buildChicken() {
+  const root = new THREE.Group();      // world transform (position + facing)
+  const sizeFix = new THREE.Group();   // makes the bird chunky, like the original
+  sizeFix.scale.setScalar(1.38);
+  sizeFix.position.y = 0.11;           // ...without sinking its feet into the ground
+  const squash = new THREE.Group();    // squash & stretch / idle bob
+  root.add(sizeFix);
+  sizeFix.add(squash);
+  const white = mat(PAL.chicken), shade = mat(PAL.chickenShade);
+
+  const body = box(0.66, 0.52, 0.76, white, 0, 0.30, 0);
+  const chest = box(0.5, 0.32, 0.2, white, 0, 0.26, 0.34);
+  const tail = box(0.5, 0.34, 0.22, shade, 0, 0.44, -0.4);
+  tail.rotation.x = -0.55;
+  const wingL = box(0.08, 0.34, 0.5, shade, -0.34, 0.32, -0.02);
+  const wingR = box(0.08, 0.34, 0.5, shade, 0.34, 0.32, -0.02);
+
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0, 0.56, 0.16);
+  const head = box(0.4, 0.4, 0.4, white, 0, 0.08, 0.06);
+  const comb = box(0.1, 0.16, 0.26, mat(PAL.comb), 0, 0.31, 0.02);
+  const beak = box(0.16, 0.12, 0.2, mat(PAL.beak), 0, 0.05, 0.29);
+  const wattle = box(0.1, 0.12, 0.1, mat(PAL.comb), 0, -0.08, 0.24);
+  const eyeG = mat(0x232331);
+  const eyeL = box(0.08, 0.09, 0.05, eyeG, -0.16, 0.14, 0.22);
+  const eyeR = box(0.08, 0.09, 0.05, eyeG, 0.16, 0.14, 0.22);
+  headPivot.add(head, comb, beak, wattle, eyeL, eyeR);
+
+  const legL = box(0.1, 0.18, 0.1, mat(PAL.beak), -0.16, 0.03, 0.02);
+  const legR = box(0.1, 0.18, 0.1, mat(PAL.beak), 0.16, 0.03, 0.02);
+  const footL = box(0.16, 0.06, 0.22, mat(PAL.beak), -0.16, -0.05, 0.06);
+  const footR = box(0.16, 0.06, 0.22, mat(PAL.beak), 0.16, -0.05, 0.06);
+
+  squash.add(body, chest, tail, wingL, wingR, headPivot, legL, legR, footL, footR);
+  squash.traverse((o) => { if (o.isMesh) shadowOn(o); });
+  return { root, squash, sizeFix, headPivot, body, tail };
+}
+
+/* --- scenery ------------------------------------------------------------- */
+function buildTree(variant) {
+  const g = new THREE.Group();
+  const trunkMat = mat(PAL.trunk, { flat: true });
+  if (variant === 'pine') {
+    g.add(shadowOn(box(0.26, 0.5, 0.26, trunkMat, 0, 0.22, 0)));
+    const cone1 = new THREE.Mesh(GEO.cone, mat(PAL.leafB, { flat: true }));
+    cone1.position.y = 0.85; cone1.scale.set(1.5, 1.3, 1.5);
+    const cone2 = new THREE.Mesh(GEO.cone, mat(PAL.leafC, { flat: true }));
+    cone2.position.y = 1.45; cone2.scale.set(1.0, 1.0, 1.0);
+    g.add(shadowOn(cone1), shadowOn(cone2));
+  } else if (variant === 'bush') {
+    g.add(shadowOn(box(0.3, 0.34, 0.3, trunkMat, 0, 0.16, 0)));
+    const ball = new THREE.Mesh(GEO.ico, mat(PAL.leafA, { flat: true }));
+    ball.scale.set(1.35, 1.1, 1.35); ball.position.y = 0.72;
+    g.add(shadowOn(ball));
+  } else {  // classic cube canopy
+    g.add(shadowOn(box(0.3, 0.7, 0.3, trunkMat, 0, 0.32, 0)));
+    g.add(shadowOn(box(1.16, 0.9, 1.16, mat(PAL.leafA, { flat: true }), 0, 1.12, 0)));
+    g.add(shadowOn(box(0.8, 0.42, 0.8, mat(PAL.leafC, { flat: true }), 0, 1.68, 0)));
+  }
+  g.rotation.y = rand(0, Math.PI * 2);
+  return g;
+}
+function buildRock() {
+  const g = new THREE.Group();
+  const r = new THREE.Mesh(GEO.rock, mat(PAL.rock, { flat: true }));
+  r.scale.set(0.86, 0.7, 0.86); r.position.y = 0.3;
+  r.rotation.set(rand(0, 1), rand(0, 6), rand(0, 1));
+  g.add(shadowOn(r));
+  const r2 = new THREE.Mesh(GEO.rock, mat(PAL.rockDark, { flat: true }));
+  r2.scale.set(0.45, 0.4, 0.45); r2.position.set(0.34, 0.16, -0.26);
+  r2.rotation.set(rand(0, 1), rand(0, 6), rand(0, 1));
+  g.add(shadowOn(r2));
+  return g;
+}
+function buildTuft() {                       // purely decorative, walk-through
+  // one cheap blade cluster instead of three meshes: this is the most
+  // frequently placed prop, so it is deliberately a single draw call
+  const m = mat(PAL.grassPatch, { flat: true });
+  const b = box(0.16, rand(0.26, 0.44), 0.16, m, 0, 0.14, 0);
+  b.rotation.set(rand(-0.2, 0.2), rand(0, Math.PI), rand(-0.2, 0.2));
+  b.castShadow = false; b.receiveShadow = true;
+  return b;
+}
+function buildFlower() {
+  const g = new THREE.Group();
+  g.add(box(0.06, 0.26, 0.06, mat(PAL.leafB), 0, 0.13, 0));
+  g.add(box(0.2, 0.1, 0.2, mat(pick([0xffd447, 0xf58fb4, 0xffffff, 0xff8c42])), 0, 0.3, 0));
+  g.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+  return g;
+}
+
+/* --- vehicles ------------------------------------------------------------ */
+function buildCar(color) {
+  const g = new THREE.Group();
+  const chassis = box(1.0, 0.16, 0.74, mat(0x2b2f36, { flat: true }), 0, 0.13, 0);
+  const body = box(1.0, 0.32, 0.76, mat(color, { flat: true }), 0, 0.35, 0);
+  const cabin = box(0.52, 0.3, 0.66, mat(0x2f3b4d, { flat: true }), -0.05, 0.62, 0);
+  g.add(shadowOn(chassis, false, false), shadowOn(body), shadowOn(cabin));
+  // windscreen hint
+  const glass = box(0.03, 0.2, 0.5, mat(0x8fd0ea, { flat: true }), 0.22, 0.62, 0);
+  g.add(shadowOn(glass, false, false));
+  return g;
+}
+function buildTruck(color) {
+  const g = new THREE.Group();
+  const bedLen = 1.9;
+  g.add(shadowOn(box(bedLen, 0.18, 0.78, mat(0x2b2f36, { flat: true }), 0, 0.14, 0), false, false));
+  g.add(shadowOn(box(1.25, 0.72, 0.8, mat(0xdfe4ea, { flat: true }), -0.55, 0.55, 0)));       // cargo box
+  g.add(shadowOn(box(0.62, 0.62, 0.78, mat(color, { flat: true }), 0.66, 0.5, 0)));           // cab
+  g.add(shadowOn(box(0.04, 0.24, 0.56, mat(0x8fd0ea, { flat: true }), 0.94, 0.56, 0), false, false));
+  return g;
+}
+function buildBus(color) {
+  const g = new THREE.Group();
+  g.add(shadowOn(box(2.3, 0.2, 0.8, mat(0x2b2f36, { flat: true }), 0, 0.15, 0), false, false));
+  g.add(shadowOn(box(2.3, 0.8, 0.82, mat(color, { flat: true }), 0, 0.65, 0)));
+  const win = mat(0x8fd0ea, { flat: true });
+  for (let i = -2; i <= 2; i++) g.add(shadowOn(box(0.3, 0.3, 0.05, win, i * 0.42, 0.72, 0.42), false, false));
+  return g;
+}
+function buildTrain() {
+  const g = new THREE.Group();
+  const len = 7.6;
+  g.add(shadowOn(box(len, 0.26, 0.86, mat(0x33383f, { flat: true }), 0, 0.16, 0), false, false));
+  g.add(shadowOn(box(len, 0.78, 0.92, mat(0xd7263d, { flat: true }), 0, 0.64, 0)));
+  g.add(shadowOn(box(len * 0.62, 0.3, 0.05, mat(0x8fd0ea, { flat: true }), 0, 0.78, 0.47), false, false));
+  g.add(shadowOn(box(0.5, 0.9, 0.96, mat(0xffd447, { flat: true }), len * 0.42, 0.68, 0)));
+  g.add(shadowOn(box(0.5, 0.9, 0.96, mat(0xffd447, { flat: true }), -len * 0.42, 0.68, 0)));
+  return { group: g, halfLen: len / 2 + 0.3 };
+}
+
+/* --- water props --------------------------------------------------------- */
+function buildLog(length) {
+  const m = new THREE.Mesh(GEO.cyl, mat(PAL.log, { flat: true }));
+  m.rotation.z = Math.PI / 2;
+  m.scale.set(0.56, length, 0.56);         // local +y is the cylinder axis
+  m.position.y = -0.19;
+  return shadowOn(m);
+}
+function buildLilyPad() {
+  const g = new THREE.Group();
+  const p = new THREE.Mesh(GEO.pad, mat(PAL.pad, { flat: true }));
+  p.scale.set(0.98, 0.1, 0.98); p.position.y = 0.01;
+  g.add(shadowOn(p));
+  const top = new THREE.Mesh(GEO.pad, mat(PAL.padTop, { flat: true }));
+  top.scale.set(0.7, 0.06, 0.7); top.position.y = 0.06; top.receiveShadow = true;
+  g.add(top);
+  if (chance(0.35)) {
+    const f = box(0.2, 0.1, 0.2, mat(PAL.flower), 0.16, 0.12, 0.1);
+    g.add(f);
+  }
+  return g;
+}
+function buildCoin() {
+  const g = new THREE.Group();
+  const c = new THREE.Mesh(GEO.disc, mat(PAL.coin));
+  c.rotation.x = Math.PI / 2; c.scale.set(0.42, 0.1, 0.42);
+  c.castShadow = true;
+  const inner = new THREE.Mesh(GEO.disc, mat(PAL.coinDark));
+  inner.rotation.x = Math.PI / 2; inner.scale.set(0.26, 0.14, 0.26);
+  g.add(c, inner);
+  return g;
+}
+
+/* --- railroad crossing gear --------------------------------------------- */
+function buildCrossingPost() {
+  const g = new THREE.Group();
+  g.add(shadowOn(box(0.14, 0.62, 0.14, mat(PAL.post, { flat: true }), 0, 0.31, 0)));
+  const lensA = box(0.22, 0.22, 0.1, mat(PAL.warnOff, { emissive: 0x000000 }), 0, 0.72, 0.1);
+  g.add(shadowOn(lensA, false, false));
+  return { group: g, lens: lensA };
+}
+
+/* --- the hawk that grabs you when you wander too far back ---------------- */
+function buildHawk() {
+  const g = new THREE.Group();
+  const bodyM = mat(PAL.eagleBody, { flat: true }), wingM = mat(PAL.eagleWing, { flat: true });
+  const body = box(0.62, 0.5, 1.15, bodyM, 0, 0, 0);
+  const head = box(0.38, 0.38, 0.38, mat(PAL.eagleHead, { flat: true }), 0, 0.16, 0.68);
+  const beak = box(0.16, 0.14, 0.3, mat(PAL.beak), 0, 0.1, 0.94);
+  const tailF = box(0.5, 0.1, 0.5, mat(PAL.eagleHead, { flat: true }), 0, 0.02, -0.74);
+  g.add(shadowOn(body), shadowOn(head), shadowOn(beak), shadowOn(tailF));
+  const wings = [];
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.3, 0.1, 0.05);
+    const w = box(1.7, 0.12, 0.86, wingM, s * 0.9, 0, 0);
+    pivot.add(shadowOn(w));
+    g.add(pivot);
+    wings.push(pivot);
+  }
+  g.traverse((o) => { if (o.isMesh) o.castShadow = false; });   // avoid a giant shadow blob
+  return { group: g, wings };
+}
+const hawk = buildHawk();
+hawk.group.visible = false;
+scene.add(hawk.group);
+
+/* ==========================================================================
+   4. WORLD: procedural row generation, bookkeeping, cleanup
+   ========================================================================== */
+const rows = new Map();            // rowIndex -> row object
+const world = { frontier: -1, lastChunk: null, seed: Math.random() };
+const RAIL_SPAWN = CFG.TRACK_HALF + 16;   // where trains enter the lane (far off-screen)
+
+function difficulty() { return clamp(score.maxRow / 160, 0, 1); }
+function rowY(i) { return i; }     // world z of row i (rows are 1 unit deep)
+
+/** A row is one lane of the endless field, spanning x in [-TERRAIN_HALF, TERRAIN_HALF]. */
+function newRow(index, type) {
+  const group = new THREE.Group();
+  group.position.z = rowY(index);
+  scene.add(group);
+  const row = { index, type, group, lanes: null, floats: [], coins: [], blocking: new Set(), disposables: [] };
+  rows.set(index, row);
+  return row;
+}
+
+/* --- tiny geometry helper: a strip of flat quads (dashes / sleepers) -------
+   These used to be one mesh per dash, which cost ~20 draw calls per road lane.
+   Baking the whole strip into a single shared geometry gives 1 draw call. */
+function makeStripGeometry(len, segLen, gap, thickness, y) {
+  const pos = [], nor = [], idx = [];
+  let x = -len / 2, v = 0;
+  const t = thickness / 2;
+  while (x < len / 2) {
+    const x2 = Math.min(x + segLen, len / 2);
+    pos.push(x, y, -t, x2, y, -t, x2, y, t, x, y, t);
+    for (let i = 0; i < 4; i++) nor.push(0, 1, 0);
+    idx.push(v, v + 1, v + 2, v, v + 2, v + 3);
+    v += 4;
+    x += segLen + gap;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+const GEO_DASH = makeStripGeometry(CFG.TERRAIN_HALF * 2, 1.8, 1.6, 0.13, 0);
+const GEO_SLEEPER = makeStripGeometry(CFG.TERRAIN_HALF * 2, 0.7, 1.2, 0.9, 0);
+
+/* --- decorative + structural pieces ------------------------------------- */
+function addBaseSlab(row, color, y, height) {
+  const slab = box(CFG.TERRAIN_HALF * 2, height, 1.0, mat(color), 0, y, 0);
+  slab.receiveShadow = true; slab.castShadow = false;
+  row.group.add(slab);
+  return slab;
+}
+
+function generateGrassRow(index) {
+  const row = newRow(index, 'grass');
+  const base = (index % 2 === 0) ? PAL.grassA : PAL.grassB;
+  addBaseSlab(row, base, -0.25, 0.5);
+
+  // a subtle tone break-up across the row
+  const patchMat = mat(PAL.grassPatch);
+  for (let i = 0; i < randInt(1, 3); i++) {
+    const p = box(rand(1.4, 3.2), 0.02, rand(0.4, 0.8), patchMat, rand(-CFG.TERRAIN_HALF + 2, CFG.TERRAIN_HALF - 2), 0.005, rand(-0.3, 0.3));
+    p.receiveShadow = true; p.castShadow = false;
+    row.group.add(p);
+  }
+
+  // solid obstacles (trees / rocks). Capped so a row is never fully blocked.
+  const nObstacles = randInt(1, 4);
+  const used = new Set();
+  const keepClear = (index >= -2 && index <= 2);      // don't wall in the spawn point
+  const D = CFG.DECOR_HALF - 3;
+  for (let i = 0; i < nObstacles; i++) {
+    const col = randInt(-D, D);
+    if (used.has(col)) continue;
+    if (keepClear && col >= -1 && col <= 1) continue;
+    used.add(col);
+    row.blocking.add(col);
+    const kind = Math.random();
+    const prop = kind < 0.6 ? buildTree(pick(['cube', 'cube', 'pine', 'bush'])) : buildRock();
+    prop.position.set(col, 0, 0);
+    row.group.add(prop);
+  }
+
+  // walk-through decoration
+  for (let i = 0; i < randInt(1, 4); i++) {
+    const col = randInt(-CFG.DECOR_HALF, CFG.DECOR_HALF);
+    if (row.blocking.has(col)) continue;
+    const d = chance(0.65) ? buildTuft() : buildFlower();
+    d.position.set(col + rand(-0.2, 0.2), 0, rand(-0.28, 0.28));
+    row.group.add(d);
+  }
+
+  // coins: singles or a little line
+  const free = [];
+  for (let c = -10; c <= 10; c++) if (!row.blocking.has(c)) free.push(c);
+  if (free.length > 2 && chance(0.42)) {
+    const start = pick(free);
+    const count = chance(0.35) ? 3 : 1;
+    for (let k = 0; k < count; k++) {
+      const c = start + k;
+      if (!free.includes(c)) break;
+      addCoin(row, c);
+    }
+  }
+  return row;
+}
+
+function addCoin(row, col) {
+  const m = buildCoin();
+  m.position.set(col, 0, 0);
+  m.userData.phase = rand(0, 6.28);
+  m.userData.baseY = 0.62;
+  row.group.add(m);
+  row.coins.push({ mesh: m, col, row: row.index, taken: false });
+}
+
+function generateRoadRow(index, info) {
+  const row = newRow(index, 'road');
+  addBaseSlab(row, PAL.road, -0.25, 0.5);
+  // kerb highlight on the leading edge of the first lane
+  if (info.first) {
+    const kerb = box(CFG.TERRAIN_HALF * 2, 0.06, 0.12, mat(0x5a6068), 0, 0.01, -0.44);
+    kerb.receiveShadow = true; kerb.castShadow = false;
+    row.group.add(kerb);
+  }
+  // dashed lane divider on the trailing edge of every lane but the last
+  if (!info.last) {
+    const d = new THREE.Mesh(GEO_DASH, mat(PAL.dash, { side: THREE.DoubleSide }));
+    d.position.set(0, 0.012, 0.42);
+    d.receiveShadow = true;
+    row.group.add(d);
+  }
+
+  // ---- traffic: a rigid, evenly spaced convoy that loops forever ----------
+  const d = difficulty();
+  const dir = info.dir;
+  const arche = Math.random();
+  const color = pick(CAR_COLORS);
+  let halfLen;
+  if (arche < 0.22) halfLen = 1.15;         // truck
+  else if (arche < 0.32) halfLen = 1.28;    // bus
+  else halfLen = 0.62;                      // car
+  const speed = rand(3.0, 5.2) * (1 + d * 0.62);                 // tiles / second
+  const gap = Math.max(2.6, speed * 0.52 + 1.7 - d * 0.5);       // keeps a safe window
+  const cycle = halfLen * 2 + gap;
+  const count = Math.ceil((CFG.TRACK_HALF * 2 + cycle) / cycle) + 1;
+  const span = count * cycle;
+
+  const lane = { kind: 'road', dir, speed, halfLen, cycle, count, span, phase: rand(0, span), vehicles: [] };
+  for (let i = 0; i < count; i++) {
+    const inst = (arche < 0.22) ? buildTruck(color) : (arche < 0.32 ? buildBus(color) : buildCar(color));
+    inst.rotation.y = dir > 0 ? 0 : Math.PI;
+    row.group.add(inst);
+    lane.vehicles.push({ mesh: inst, x: 0, i, halfLen });
+  }
+  row.lane = lane;
+  positionLane(lane);
+  return row;
+}
+
+/** Where is every vehicle of this lane right now? (rigid loop, no state drift) */
+function positionLane(lane) {
+  for (const v of lane.vehicles) {
+    const raw = v.i * lane.cycle + lane.dir * lane.phase;
+    v.x = mod(raw, lane.span) - lane.span * 0.5;
+    v.mesh.position.x = v.x;
+  }
+}
+
+// remembers the last lily-pad row so consecutive pad rows can share columns
+let padRowIndex = -999, padRowCols = [];
+
+function generateWaterRow(index, info) {
+  const row = newRow(index, 'water');
+  // bed
+  addBaseSlab(row, PAL.waterBed, -1.05, 1.1);
+  // animated surface (own geometry per row -> animated independently)
+  const geo = new THREE.PlaneGeometry(CFG.TERRAIN_HALF * 2, 1.0, 44, 2);
+  row.disposables.push(geo);
+  const surf = new THREE.Mesh(geo, mat(PAL.waterTop, { side: THREE.DoubleSide }));
+  surf.rotation.x = -Math.PI / 2;
+  surf.position.y = -0.055;
+  surf.receiveShadow = true;
+  row.group.add(surf);
+  row.water = { geo, mesh: surf, phase: rand(0, 6.28) };
+
+  // shore foam
+  const foam = box(CFG.TERRAIN_HALF * 2, 0.04, 0.14, mat(0xbfe6ff), 0, 0.0, -0.46);
+  foam.receiveShadow = true; foam.castShadow = false;
+  row.group.add(foam);
+
+  const d = difficulty();
+  const dir = info.dir;
+
+  if (chance(0.28)) {
+    // ---- lily pad row: static stepping stones (a breather) ----
+    // If the row right behind us was also a pad row we reuse its columns, so the
+    // player can never get stranded in front of a row with no reachable pad.
+    const cols = (index - 1 === padRowIndex && padRowCols.length)
+      ? padRowCols.slice()
+      : (() => {
+          const set = new Set();
+          for (let i = 0; i < randInt(6, 9); i++) set.add(randInt(-10, 10));
+          return [...set].sort((a, b) => a - b);
+        })();
+    padRowIndex = index; padRowCols = cols;
+    for (const col of cols) {
+      const pad = buildLilyPad();
+      pad.position.set(col, 0, 0);
+      row.group.add(pad);
+      row.floats.push({ mesh: pad, x: col, halfLen: 0.5, support: 0.45, speed: 0, dir: 0, kind: 'pad' });
+    }
+  } else {
+    // ---- log row: a looping convoy of logs, same maths as the roads ----
+    const len = randInt(2, 4);
+    const halfLen = len / 2;
+    const speed = rand(0.9, 2.3) * (1 + d * 0.45);
+    const gap = clamp(4.4 - d * 1.5 + rand(-0.4, 0.8), 2.2, 6);
+    const cycle = len + gap;
+    const count = Math.ceil((CFG.TRACK_HALF * 2 + cycle) / cycle) + 1;
+    const span = count * cycle;
+    const lane = { kind: 'water', dir, speed, halfLen, cycle, count, span, phase: rand(0, span), vehicles: [] };
+    for (let i = 0; i < count; i++) {
+      const m = buildLog(len);
+      row.group.add(m);
+      // floats double as the lane's support list, so they carry speed/dir too
+      const v = { mesh: m, x: 0, i, halfLen, speed, dir, kind: 'log' };
+      lane.vehicles.push(v);
+      row.floats.push(v);
+    }
+    row.lane = lane;
+    positionLane(lane);
+  }
+  return row;
+}
+
+function generateRailRow(index) {
+  const row = newRow(index, 'rail');
+  addBaseSlab(row, PAL.gravel, -0.25, 0.5);
+  // sleepers + rails
+  const s = new THREE.Mesh(GEO_SLEEPER, mat(PAL.sleeper, { flat: true, side: THREE.DoubleSide }));
+  s.position.y = 0.055;
+  s.receiveShadow = true;
+  row.group.add(s);
+  const rm = mat(PAL.rail, { flat: true });
+  for (const z of [-0.26, 0.26]) {
+    const r = box(CFG.TERRAIN_HALF * 2, 0.09, 0.11, rm, 0, 0.11, z);
+    r.castShadow = false;
+    row.group.add(r);
+  }
+  // crossing posts (they flash before a train shows up)
+  row.warn = { active: false, t: 0, lens: [] };
+  for (const x of [-9.3, 9.3]) {
+    const p = buildCrossingPost();
+    p.group.position.set(x, 0, 0);
+    p.group.rotation.y = Math.PI;
+    row.group.add(p.group);
+    row.warn.lens.push(p.lens);
+  }
+  // the train itself: spawned explicitly so we control the warning window
+  // (trains appear far outside the view, giving ~2s of flashing-light warning)
+  row.train = {
+    mesh: null, x: 0, dir: chance(0.5) ? 1 : -1, speed: rand(15, 19),
+    cool: rand(2.5, 7), halfLen: 4.1,
+  };
+  return row;
+}
+
+/* --- chunk generator: picks a run of rows of one kind ------------------- */
+function nextChunkType(prevType) {
+  const d = difficulty();
+  const w = { grass: 30 - 13 * d, road: 34 + 5 * d, water: 22 + 9 * d, rail: (world.frontier > 16 ? 11 : 0) };
+  if (prevType === 'water') w.water = 0;                     // never two water runs back to back
+  if (prevType === 'road') w.road = 0;                       // never two highways back to back
+  if (prevType === 'grass') w.grass *= 0.3;                  // keep safe runs snappy
+  if (prevType === 'rail') { w.rail = 0; w.grass += 300; }   // always a safe landing after tracks
+  if (world.frontier < 6) { w.water = 0; w.rail = 0; }       // a gentle, hazard-free intro
+  let total = 0; for (const k in w) total += w[k];
+  let r = Math.random() * total;
+  for (const k in w) { r -= w[k]; if (r <= 0) return k; }
+  return 'grass';
+}
+
+function generateChunk() {
+  const start = world.frontier + 1;
+  let type = (start < 3) ? 'grass' : nextChunkType(world.lastChunk);
+  const d = difficulty();
+  world.lastChunk = type;
+
+  if (type === 'grass') {
+    const n = (start < 3) ? 3 : randInt(1, 3);
+    for (let i = 0; i < n; i++) generateGrassRow(start + i);
+    world.frontier = start + n - 1;
+  } else if (type === 'road') {
+    const n = randInt(2, d > 0.35 ? 4 : 3);
+    // alternate direction per lane so you always have a way through
+    let dir = chance(0.5) ? 1 : -1;
+    for (let i = 0; i < n; i++) {
+      generateRoadRow(start + i, { dir, first: i === 0, last: i === n - 1 });
+      if (i < n - 1 && chance(0.78)) dir = -dir;
+    }
+    world.frontier = start + n - 1;
+  } else if (type === 'water') {
+    const n = randInt(1, d > 0.5 ? 3 : 2);
+    let dir = chance(0.5) ? 1 : -1;
+    for (let i = 0; i < n; i++) {
+      generateWaterRow(start + i, { dir });
+      if (chance(0.7)) dir = -dir;
+    }
+    world.frontier = start + n - 1;
+  } else {                      // rail
+    generateRailRow(start);
+    world.frontier = start;
+  }
+}
+
+/** Keep AHEAD rows generated in front, and delete the ones far behind. */
+function ensureWorld() {
+  let guard = 0;
+  while (world.frontier < score.maxRow + CFG.AHEAD && guard++ < 40) generateChunk();
+  // trailing cleanup is measured from where the player *is*, so backing up a
+  // little never reveals a hole in the world behind them
+  const cut = player.row - CFG.BEHIND;
+  for (const [idx, row] of rows) {
+    if (idx >= cut) continue;
+    scene.remove(row.group);
+    for (const g of row.disposables) g.dispose();
+    rows.delete(idx);
+  }
+}
+
+/** A safe grass strip behind the spawn point so the player can back up a little. */
+function buildStartingArea() {
+  // row 0 comes from the chunk generator below, so we only build the tail behind it
+  for (let i = -1; i >= -CFG.BEHIND - 2; i--) generateGrassRow(i);
+}
+
+/* ==========================================================================
+   5. PLAYER CONTROLLER
+   ========================================================================== */
+const player = {
+  x: 0, z: 0, y: 0, baseY: 0,
+  col: 0, row: 0,
+  yaw: 0, targetYaw: 0,
+  hop: null,                 // { t, dur, fx, fz, tx, tz, dx, dz }
+  riding: null,              // float we are standing on (water)
+  alive: true,
+  landSquash: 0,
+  idle: 0,
+};
+const chicken = buildChicken();
+chicken.root.position.set(0, 0, 0);
+scene.add(chicken.root);
+
+const inputQueue = [];
+function pushMove(dx, dz) {
+  if (game.state !== 'playing' || !player.alive) return;
+  if (inputQueue.length >= CFG.INPUT_BUFFER) return;
+  inputQueue.push({ dx, dz });
+}
+
+/** Would a hop to (col,row) be legal? Trees/rocks and the side wall block it. */
+function canEnter(col, row) {
+  if (Math.abs(col) > CFG.LAT_WALL) return false;      // invisible side wall
+  if (row > world.frontier) return false;              // don't outrun the generator
+  const r = rows.get(row);
+  if (!r) return false;
+  if (r.blocking.has(col)) return false;               // solid tree / rock
+  return true;
+}
+
+function startHop(dx, dz) {
+  const tx = Math.round(player.x + dx);
+  const tz = Math.round(player.z + dz);
+  if (!canEnter(tx, tz)) {
+    // bump feedback: a tiny nudge toward the blocked tile
+    player.landSquash = 0.35;
+    sfx('bump');
+    return false;
+  }
+  player.hop = {
+    t: 0, dur: CFG.HOP_TIME,
+    fx: player.x, fz: player.z, tx, tz, dx, dz,
+  };
+  player.riding = null;
+  player.targetYaw = Math.atan2(dx, dz);
+  sfx('hop');
+  return true;
+}
+
+function finishHop() {
+  const hop = player.hop;
+  player.x = hop.tx; player.z = hop.tz;
+  player.hop = null;
+  player.col = Math.round(player.x); player.row = Math.round(player.z);
+  if (player.row > score.maxRow) {
+    score.maxRow = player.row;
+    setScore(score.maxRow);
+  }
+  const row = rows.get(player.row);
+  if (row && row.type === 'water') {
+    const f = findFloat(row, player.x);
+    if (!f) { die('water'); return; }
+    player.riding = f;
+    player.baseY = 0.09;
+  } else {
+    player.riding = null;
+    player.baseY = 0;
+  }
+  player.landSquash = 1;
+}
+
+/** Which float (log / lily pad) supports this x position in this water row? */
+function findFloat(row, x) {
+  for (const f of row.floats) {
+    const reach = (f.support !== undefined) ? f.support : f.halfLen + 0.16;
+    if (Math.abs(f.x - x) <= reach) return f;
+  }
+  return null;
+}
+
+function updatePlayer(dt) {
+  if (!player.alive) return;
+
+  // --- queue -> hop
+  if (!player.hop && inputQueue.length) {
+    const m = inputQueue.shift();
+    startHop(m.dx, m.dz);
+  }
+
+  // --- hop animation (parabolic arc + squash/stretch)
+  if (player.hop) {
+    const h = player.hop;
+    h.t += dt;
+    const u = clamp(h.t / h.dur, 0, 1);
+    player.x = lerp(h.fx, h.tx, u);
+    player.z = lerp(h.fz, h.tz, u);
+    player.y = Math.sin(Math.PI * u) * CFG.HOP_HEIGHT;
+    const s = Math.sin(Math.PI * u);
+    chicken.squash.scale.set(1 - 0.10 * s, 1 + 0.26 * s, 1 - 0.10 * s);
+    if (h.t >= h.dur) finishHop();
+  } else {
+    player.y = 0;
+    if (player.landSquash > 0) {
+      player.landSquash = Math.max(0, player.landSquash - dt * 6);
+      const s = player.landSquash * 0.34;
+      chicken.squash.scale.set(1 + s, 1 - s, 1 + s);
+    } else {
+      chicken.squash.scale.set(1, 1, 1);
+    }
+  }
+
+  // --- if we are standing on something that floats, drift with it
+  if (!player.hop) {
+    const row = rows.get(player.row);
+    if (row && row.type === 'water') {
+      const f = findFloat(row, player.x);
+      if (!f) { if (player.alive) die('water'); return; }
+      player.riding = f;
+      if (f.speed) {
+        player.x += f.speed * f.dir * dt;
+        if (Math.abs(player.x) > CFG.CARRY_DEATH) { die('swept'); return; }
+      }
+    }
+  }
+
+  // --- walked too far back?
+  if (player.row < score.maxRow - CFG.BACK_LIMIT) { die('back'); return; }
+
+  // --- body position / idle life
+  const bob = player.hop ? 0 : Math.sin(game.t * 3.1) * 0.014;
+  chicken.root.position.set(player.x, player.baseY + player.y + bob, player.z);
+  player.yaw = dampAngle(player.yaw, player.targetYaw, 18, dt);
+  chicken.root.rotation.y = player.yaw;
+
+  // idle peck + wing flap
+  player.idle += dt;
+  const peck = Math.max(0, Math.sin(game.t * 1.15) - 0.965) * 28;
+  chicken.headPivot.rotation.x = peck * 0.9;
+  chicken.headPivot.position.z = 0.16 - peck * 0.1;
+  chicken.headPivot.position.y = 0.56 - peck * 0.08;
+  const flap = player.hop ? Math.sin((player.hop.t / player.hop.dur) * Math.PI) : 0;
+  chicken.tail.rotation.x = -0.55 - flap * 0.5;
+
+  // --- lethal traffic check (roads and rails)
+  dangerCheck();
+  // --- coins
+  collectCoins();
+}
+
+function dangerCheck() {
+  if (!player.alive) return;
+  for (const row of rows.values()) {
+    if (row.type !== 'road' && row.type !== 'rail') continue;
+    if (Math.abs(row.index - player.z) > 0.52) continue;      // not on this row
+    if (row.lane) {
+      for (const v of row.lane.vehicles) {
+        if (Math.abs(v.x - player.x) < v.halfLen + 0.34) { die('traffic'); return; }
+      }
+    }
+    if (row.train && row.train.mesh) {
+      const t = row.train;
+      if (Math.abs(t.x - player.x) < t.halfLen + 0.34) { die('traffic'); return; }
+    }
+  }
+}
+
+function collectCoins() {
+  for (const row of rows.values()) {
+    if (Math.abs(row.index - player.z) > 0.5) continue;
+    for (const c of row.coins) {
+      if (c.taken) continue;
+      if (Math.abs(c.col - player.x) < 0.62) {
+        c.taken = true;
+        c.mesh.visible = false;
+        score.coins++;
+        setCoins(score.coins);
+        burst(c.mesh.position.x, 0.65, row.index, 0xffd447, 10, { spread: 0.34, up: 2.6, size: 0.11, life: 0.55 });
+        sfx('coin');
+      }
+    }
+  }
+}
+
+/* ==========================================================================
+   6. DEATH SEQUENCES
+   ========================================================================== */
+const death = { cause: null, t: 0, dur: 1, data: null };
+
+function die(cause) {
+  if (!player.alive) return;
+  player.alive = false;
+  player.hop = null;
+  inputQueue.length = 0;
+  // being too far behind your best row is the hawk's cue (it picks you up)
+  const anim = (cause === 'back') ? 'hawk' : cause;
+  game.shake = anim === 'traffic' ? 0.5 : 0.22;
+  death.cause = anim; death.t = 0; death.data = { x: player.x, z: player.z };
+  score.lastCause = cause;
+  sfx(anim === 'traffic' ? 'crash' : (anim === 'water' || anim === 'swept') ? 'splash' : 'hawk');
+
+  if (anim === 'traffic') {
+    // flatten + feathers
+    chicken.squash.scale.set(1.45, 0.14, 1.45);
+    chicken.root.position.y = player.baseY + 0.06;
+    burst(player.x, 0.5, player.z, 0xffffff, 16, { spread: 0.5, up: 3.2, size: 0.13, life: 0.9, grav: 7 });
+    death.dur = 0.9;
+  } else if (anim === 'water') {
+    // splash then sink
+    burst(player.x, 0.05, player.z, 0xbfe6ff, 22, { spread: 0.55, up: 3.4, size: 0.12, life: 0.7, grav: 9 });
+    rings.push({ x: player.x, z: player.z, t: 0, life: 0.9 });
+    death.dur = 1.0;
+  } else if (anim === 'swept') {
+    burst(player.x, 0.05, player.z, 0xbfe6ff, 16, { spread: 0.5, up: 2.6, size: 0.12, life: 0.7, grav: 9 });
+    rings.push({ x: player.x, z: player.z, t: 0, life: 0.9 });
+    death.dur = 1.0;
+  } else {  // hawk: swoops in and carries the chicken away
+    hawk.group.visible = true;
+    hawk.group.position.set(player.x, 15, player.z - 12.5);
+    hawk.group.rotation.set(-0.5, 0, 0);
+    death.dur = 1.55;
+    cam.targetZoom = 1.18;
+  }
+}
+
+function updateDeath(dt) {
+  if (player.alive) return;
+  death.t += dt;
+  const p = death.t;
+
+  if (death.cause === 'traffic') {
+    chicken.root.position.y = Math.max(-0.05, chicken.root.position.y - dt * 1.2);
+    chicken.squash.rotation.z = Math.sin(p * 22) * 0.02;
+  } else if (death.cause === 'water' || death.cause === 'swept') {
+    // sink under the surface
+    const k = clamp((p - 0.18) / 0.7, 0, 1);
+    chicken.root.position.y = player.baseY - k * 1.5;
+    chicken.root.rotation.z = k * 0.7;
+    chicken.squash.scale.setScalar(1 - k * 0.25);
+    chicken.root.rotation.y += dt * 1.2;
+  } else if (death.cause === 'hawk') {
+    const hp = hawk.group.position;
+    const t = death.data;
+    if (p < 0.42) {                                   // dive in from high behind the camera
+      const u = p / 0.42, e = u * u;
+      hp.set(t.x, lerp(15, 1.35, e), lerp(t.z - 12.5, t.z + 0.35, e));
+      hawk.group.rotation.x = lerp(-0.5, 0.1, u);
+      chicken.root.position.set(t.x, player.baseY, t.z);   // wait on the ground
+    } else if (p < 0.62) {                            // talons close
+      const u = (p - 0.42) / 0.2;
+      hp.y = lerp(1.35, 1.7, u);
+      chicken.root.rotation.z = Math.sin(p * 30) * 0.2;
+      chicken.root.position.set(hp.x, hp.y - 0.42, hp.z + 0.1);
+    } else {                                          // climb away with the prize
+      const u = clamp((p - 0.62) / 0.9, 0, 1);
+      const e = 1 - Math.pow(1 - u, 2);
+      hp.set(t.x + e * 4.5, lerp(1.7, 15, e), t.z + e * 5.5);
+      hawk.group.rotation.x = lerp(0.1, -0.35, e);
+      chicken.root.position.set(hp.x, hp.y - 0.42, hp.z + 0.1);
+    }
+    chicken.root.rotation.y = dampAngle(chicken.root.rotation.y, 0.0, 6, dt);
+  }
+  const flap = Math.sin(p * 26) * 0.7;
+  hawk.wings[0].rotation.z = 0.25 + flap;
+  hawk.wings[1].rotation.z = -0.25 - flap;
+
+  if (p >= death.dur) gameOver();
+}
+
+/* ==========================================================================
+   7. PARTICLES / FX / CAMERA / AUDIO
+   ========================================================================== */
+const MAX_PARTICLES = 220;
+const pGeo = new THREE.BoxGeometry(1, 1, 1);
+const pInst = new THREE.InstancedMesh(pGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), MAX_PARTICLES);
+pInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+pInst.frustumCulled = false;
+pInst.count = MAX_PARTICLES;
+scene.add(pInst);
+const particles = [];
+for (let i = 0; i < MAX_PARTICLES; i++) particles.push({ life: 0, ttl: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, size: 0.1, rot: 0, vr: 0, grav: 9 });
+let pCursor = 0;
+const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v3 = new THREE.Vector3(), _v3b = new THREE.Vector3();
+const _col = new THREE.Color();
+
+function burst(x, y, z, color, count, o) {
+  o = o || {};
+  for (let i = 0; i < count; i++) {
+    const idx = pCursor;
+    const p = particles[idx];
+    pCursor = (pCursor + 1) % MAX_PARTICLES;
+    p.life = p.ttl = (o.life || 0.7) * rand(0.7, 1.25);
+    p.x = x + rand(-0.1, 0.1); p.y = y + rand(-0.05, 0.15); p.z = z + rand(-0.1, 0.1);
+    const sp = (o.spread || 0.4);
+    p.vx = rand(-sp, sp); p.vz = rand(-sp, sp);
+    p.vy = (o.up || 2.5) * rand(0.5, 1.15);
+    p.size = (o.size || 0.1) * rand(0.7, 1.3);
+    p.grav = o.grav === undefined ? 9 : o.grav;
+    p.rot = rand(0, 6.28); p.vr = rand(-9, 9);
+    _col.setHex(color).offsetHSL(0, 0, rand(-0.06, 0.06));
+    pInst.setColorAt(idx, _col);
+  }
+  if (pInst.instanceColor) pInst.instanceColor.needsUpdate = true;
+}
+
+function updateParticles(dt) {
+  for (let i = 0; i < MAX_PARTICLES; i++) {
+    const p = particles[i];
+    if (p.life <= 0) { _m4.makeScale(0, 0, 0); pInst.setMatrixAt(i, _m4); continue; }
+    p.life -= dt;
+    p.vy -= p.grav * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.rot += p.vr * dt;
+    if (p.y < 0 && p.vy < 0) { p.y = 0; p.vy *= -0.35; p.vx *= 0.7; p.vz *= 0.7; }
+    const k = clamp(p.life / p.ttl, 0, 1);
+    const s = p.size * (0.4 + k * 0.6);
+    _e.set(p.rot, p.rot * 0.8, p.rot * 1.4);
+    _q.setFromEuler(_e);
+    _m4.compose(_v3.set(p.x, p.y, p.z), _q, _v3b.set(s, s, s));
+    pInst.setMatrixAt(i, _m4);
+  }
+  pInst.instanceMatrix.needsUpdate = true;
+}
+
+/* --- expanding splash rings ------------------------------------------------- */
+const rings = [];
+const ringGeo = new THREE.RingGeometry(0.4, 0.5, 20);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+function updateRings(dt) {
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i];
+    r.t += dt;
+    if (!r.mesh) {
+      r.mesh = new THREE.Mesh(ringGeo, ringMat.clone());
+      r.mesh.rotation.x = -Math.PI / 2;
+      r.mesh.position.set(r.x, 0.02, r.z);
+      scene.add(r.mesh);
+    }
+    const k = r.t / r.life;
+    r.mesh.scale.setScalar(1 + k * 2.6);
+    r.mesh.material.opacity = 0.8 * (1 - k);
+    if (r.t >= r.life) { scene.remove(r.mesh); r.mesh.material.dispose(); rings.splice(i, 1); }
+  }
+}
+
+/* --- camera rig ------------------------------------------------------------ */
+const cam = {
+  pos: new THREE.Vector3(CFG.CAM.x, CFG.CAM.y, CFG.CAM.z),
+  look: new THREE.Vector3(0, 0, 0),
+  zoom: 1, targetZoom: 1,
+  fit: 1, pitch: 1,
+};
+function camTargets() {
+  // portrait screens pull the camera back, steepen it and widen the lens (see resize())
+  const off = _v3.set(CFG.CAM.x * cam.fit, CFG.CAM.y * cam.fit * cam.pitch, CFG.CAM.z * cam.fit);
+  const z = player.z;
+  const x = player.x * 0.9;            // slight parallax: the chicken drifts a little off-centre
+  _v3b.set(x + off.x * cam.zoom, off.y * cam.zoom, z + off.z * cam.zoom);
+  return { pos: _v3b.clone(), look: new THREE.Vector3(x, 0.55, z + CFG.CAM.look) };
+}
+function updateCamera(dt, snap) {
+  cam.zoom = damp(cam.zoom, cam.targetZoom, 5, dt);
+  const t = camTargets();
+  const k = snap ? 1e9 : 1;
+  cam.pos.x = damp(cam.pos.x, t.pos.x, 5.2 * k, dt);
+  cam.pos.y = damp(cam.pos.y, t.pos.y, 5.2 * k, dt);
+  cam.pos.z = damp(cam.pos.z, t.pos.z, 7.5 * k, dt);
+  cam.look.x = damp(cam.look.x, t.look.x, 6.5 * k, dt);
+  cam.look.y = damp(cam.look.y, t.look.y, 6.5 * k, dt);
+  cam.look.z = damp(cam.look.z, t.look.z, 9.0 * k, dt);
+
+  // subtle screen shake on impacts
+  let sx = 0, sy = 0, sz = 0;
+  if (game.shake > 0) {
+    game.shake = Math.max(0, game.shake - dt * 1.7);
+    const a = game.shake * game.shake * 0.9;
+    sx = rand(-a, a); sy = rand(-a, a); sz = rand(-a, a);
+  }
+  camera.position.set(cam.pos.x + sx, cam.pos.y + sy, cam.pos.z + sz);
+  camera.lookAt(cam.look);
+}
+function updateSun() {
+  sun.position.set(player.x + SUN_OFFSET.x, SUN_OFFSET.y, player.z + SUN_OFFSET.z);
+  sun.target.position.set(player.x, 0, player.z);
+  sun.target.updateMatrixWorld();
+}
+
+/* --- audio: everything is synthesised with WebAudio (zero samples) -------- */
+let actx = null, muted = false, noiseBuf = null;
+function initAudio() {
+  if (actx) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    const len = Math.floor(actx.sampleRate * 0.6);
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    noiseBuf = buf;
+  } catch (e) { actx = null; }
+}
+function tone(freq, dur, type, vol, bend) {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, t);
+  if (bend) o.frequency.exponentialRampToValueAtTime(Math.max(20, bend), t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+  if (actx.state === 'suspended') actx.resume();
+}
+function noise(dur, vol, from, to, q) {
+  if (!actx || !noiseBuf || muted) return;
+  const t = actx.currentTime;
+  const s = actx.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q || 1;
+  f.frequency.setValueAtTime(from, t);
+  f.frequency.exponentialRampToValueAtTime(Math.max(40, to), t + dur);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(g).connect(actx.destination);
+  s.start(t); s.stop(t + dur + 0.02);
+  if (actx.state === 'suspended') actx.resume();
+}
+let lastBell = 0;
+function sfx(name) {
+  if (!actx || muted) return;
+  switch (name) {
+    case 'hop': tone(rand(560, 640), 0.075, 'square', 0.10, 900); break;
+    case 'bump': tone(180, 0.07, 'square', 0.08, 120); break;
+    case 'coin': tone(1180, 0.06, 'triangle', 0.13); setTimeout(() => tone(1760, 0.1, 'triangle', 0.11), 55); break;
+    case 'crash': noise(0.35, 0.5, 1800, 90, 0.7); tone(90, 0.3, 'sawtooth', 0.16, 40); break;
+    case 'splash': noise(0.45, 0.35, 900, 220, 0.9); break;
+    case 'hawk': tone(880, 0.18, 'sawtooth', 0.10, 300); setTimeout(() => tone(700, 0.3, 'sawtooth', 0.1, 200), 150); break;
+    case 'bell': {
+      const now = performance.now();
+      if (now - lastBell < 320) return;
+      lastBell = now;
+      tone(1320, 0.1, 'sine', 0.10);
+      setTimeout(() => tone(1320, 0.12, 'sine', 0.08), 130);
+      break;
+    }
+    case 'start': tone(520, 0.09, 'square', 0.10); setTimeout(() => tone(780, 0.12, 'square', 0.1), 90); break;
+    case 'over': tone(440, 0.16, 'triangle', 0.13); setTimeout(() => tone(330, 0.18, 'triangle', 0.13), 150);
+      setTimeout(() => tone(220, 0.34, 'triangle', 0.13), 320); break;
+  }
+}
+
+/* ==========================================================================
+   8. GAME STATE / UI / INPUT / LOOP
+   ========================================================================== */
+const score = { maxRow: 0, coins: 0, best: 0, lastCause: 'traffic' };
+try { score.best = parseInt(localStorage.getItem('crossy.best') || '0', 10) || 0; } catch (e) { score.best = 0; }
+
+const game = { state: 'menu', t: 0, shake: 0, overAt: 0 };
+
+const el = {
+  score: document.getElementById('score'),
+  best: document.getElementById('best'),
+  coins: document.getElementById('coins'),
+  coinPill: document.getElementById('coinPill'),
+  start: document.getElementById('startScreen'),
+  over: document.getElementById('overScreen'),
+  cause: document.getElementById('cause'),
+  finalScore: document.getElementById('finalScore'),
+  finalCoins: document.getElementById('finalCoins'),
+  finalBest: document.getElementById('finalBest'),
+  newBest: document.getElementById('newBest'),
+  play: document.getElementById('btnPlay'),
+  again: document.getElementById('btnAgain'),
+  sound: document.getElementById('btnSound'),
+  cam: document.getElementById('btnCam'),
+};
+el.best.textContent = score.best;
+
+const CAUSE_TEXT = {
+  traffic: 'Splat!',
+  water: 'Blub blub…',
+  swept: 'Swept away!',
+  hawk: 'Hawk got ya!',
+  back: 'Hawk got ya!',
+};
+
+function setScore(v) {
+  el.score.textContent = v;
+  el.score.classList.remove('pop'); void el.score.offsetWidth; el.score.classList.add('pop');
+}
+function setCoins(v) {
+  el.coins.textContent = v;
+  el.coinPill.classList.remove('coinPop'); void el.coinPill.offsetWidth; el.coinPill.classList.add('coinPop');
+}
+
+function startGame() {
+  initAudio();
+  // reset player
+  player.x = 0; player.z = 0; player.y = 0; player.baseY = 0; player.col = 0; player.row = 0;
+  player.yaw = 0; player.targetYaw = 0; player.hop = null; player.riding = null;
+  player.alive = true; player.landSquash = 0; player.idle = 0;
+  inputQueue.length = 0;
+  chicken.squash.scale.set(1, 1, 1);
+  chicken.squash.rotation.z = 0;
+  chicken.root.rotation.set(0, 0, 0);
+  hawk.group.visible = false;
+
+  // reset world
+  for (const row of rows.values()) { scene.remove(row.group); for (const g of row.disposables) g.dispose(); }
+  rows.clear();
+  world.frontier = -1; world.lastChunk = null;
+  padRowIndex = -999; padRowCols = [];
+  score.maxRow = 0; score.coins = 0;
+  setScore(0); setCoins(0);
+  el.newBest.classList.remove('show');
+  buildStartingArea();
+  ensureWorld();
+
+  // reset fx
+  for (const p of particles) p.life = 0;
+  for (let i = rings.length - 1; i >= 0; i--) {
+    if (rings[i].mesh) { scene.remove(rings[i].mesh); rings[i].mesh.material.dispose(); }
+  }
+  rings.length = 0;
+  cam.targetZoom = 1; game.shake = 0;
+
+  updateSun();
+  updateCamera(0.016, true);
+  game.state = 'playing';
+  el.start.classList.add('hidden');
+  el.over.classList.add('hidden');
+  sfx('start');
+}
+
+function gameOver() {
+  game.state = 'over';
+  game.overAt = performance.now();
+  const newBest = score.maxRow > score.best;
+  if (newBest) {
+    score.best = score.maxRow;
+    try { localStorage.setItem('crossy.best', String(score.best)); } catch (e) {}
+    el.best.textContent = score.best;
+  }
+  el.cause.textContent = CAUSE_TEXT[death.cause] || 'Ouch!';
+  el.finalScore.textContent = score.maxRow;
+  el.finalCoins.textContent = score.coins;
+  el.finalBest.textContent = score.best;
+  el.newBest.classList.toggle('show', newBest);
+  el.over.classList.remove('hidden');
+  cam.targetZoom = 1.14;
+  sfx('over');
+}
+
+/* --- input --------------------------------------------------------------- */
+const KEYMAP = {
+  ArrowUp: [0, 1], KeyW: [0, 1], Space: [0, 1],
+  ArrowDown: [0, -1], KeyS: [0, -1],
+  ArrowLeft: [-1, 0], KeyA: [-1, 0],
+  ArrowRight: [1, 0], KeyD: [1, 0],
+};
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.repeat) return;
+  if (e.code === 'KeyM') { toggleMute(); return; }
+  if (e.code === 'KeyC') { toggleCamera(); return; }
+  if (game.state === 'menu') {
+    if (e.code === 'Space' || e.code === 'Enter' || KEYMAP[e.code]) startGame();
+    return;
+  }
+  if (game.state === 'over') {
+    if (performance.now() - game.overAt < 350) return;     // ignore the kill keystroke
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyR') startGame();
+    return;
+  }
+  const m = KEYMAP[e.code];
+  if (m) pushMove(m[0], m[1]);
+}, { passive: false });
+
+/* pointer / touch: swipe anywhere = one hop, tap = hop forward */
+let ptr = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (ptr !== null) return;
+  ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+  canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
+  const TH = 24;
+  if (Math.abs(dx) < TH && Math.abs(dy) < TH) return;
+  ptr.moved = true;
+  if (Math.abs(dx) > Math.abs(dy)) pushMove(dx > 0 ? 1 : -1, 0);
+  else pushMove(0, dy < 0 ? 1 : -1);          // screen up = forward
+  // re-arm at the new position so a long drag can chain hops
+  ptr.x = e.clientX; ptr.y = e.clientY;
+});
+function endPointer(e) {
+  if (!ptr || e.pointerId !== ptr.id) return;
+  const quick = performance.now() - ptr.t < 600;
+  const still = Math.abs(e.clientX - ptr.x) < 12 && Math.abs(e.clientY - ptr.y) < 12;
+  ptr = null;
+  if (game.state === 'menu') { startGame(); return; }
+  if (game.state === 'over') {
+    if (performance.now() - game.overAt < 350) return;
+    startGame(); return;
+  }
+  if (quick && still) pushMove(0, 1);
+}
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', () => { ptr = null; });
+
+el.play.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+el.again.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+// tapping the dimmed backdrop also starts / restarts (buttons stopPropagation above)
+el.start.addEventListener('pointerup', (e) => { e.stopPropagation(); startGame(); });
+el.over.addEventListener('pointerup', (e) => {
+  e.stopPropagation();
+  if (performance.now() - game.overAt < 350) return;
+  startGame();
+});
+function toggleMute() {
+  muted = !muted;
+  initAudio();
+  el.sound.dataset.off = muted ? 'true' : 'false';
+  document.getElementById('sndWave1').style.display = muted ? 'none' : '';
+  document.getElementById('sndWave2').style.display = muted ? 'none' : '';
+  document.getElementById('sndX').style.display = muted ? '' : 'none';
+  if (!muted) sfx('start');
+}
+function toggleCamera() {
+  useOrtho = !useOrtho;
+  camera = useOrtho ? ortho : persp;
+  updateCamera(0.016, true);
+}
+el.sound.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); });
+el.cam.addEventListener('click', (e) => { e.stopPropagation(); toggleCamera(); });
+
+/* --- resize -------------------------------------------------------------- */
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  const aspect = w / h;
+  renderer.setSize(w, h);
+
+  // Phone-shaped viewports are tall and narrow. Instead of just pushing the
+  // camera away (which would fog the player out), pull back a little, steepen
+  // the angle and widen the lens so the visible patch of world stays usable.
+  const t = clamp((1.4 - aspect) / 0.94, 0, 1);
+  cam.fit = 1 + 0.28 * t;
+  cam.pitch = 1 + 0.30 * t;
+  persp.fov = CFG.CAM.fov + 12 * t;
+  persp.aspect = aspect;
+  persp.updateProjectionMatrix();
+
+  // Fog has to key off how far the camera actually ends up, otherwise a
+  // pulled-back rig would swallow the play area in haze.
+  const d = Math.hypot(CFG.CAM.x * cam.fit, CFG.CAM.y * cam.fit * cam.pitch, CFG.CAM.z * cam.fit);
+  scene.fog.near = d * 1.2;
+  scene.fog.far = d * 2.05;
+
+  // orthographic frustum (camera toggle): sized so the visible slice of world
+  // stays inside the generated/decorated region at any aspect ratio
+  const fh = 24, fw = fh * aspect;
+  ortho.left = -fw / 2; ortho.right = fw / 2; ortho.top = fh / 2; ortho.bottom = -fh / 2;
+  ortho.updateProjectionMatrix();
+
+  updateCamera(0.016, true);
+}
+window.addEventListener('resize', resize, { passive: true });
+window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+
+/* --- per-frame world updates -------------------------------------------- */
+function updateWorld(dt) {
+  const t = game.t;
+
+  for (const row of rows.values()) {
+    // traffic
+    if (row.lane) {
+      row.lane.phase += row.lane.speed * dt;
+      positionLane(row.lane);
+    }
+    // water surface waves
+    if (row.water) {
+      const pos = row.water.geo.attributes.position;
+      const arr = pos.array;
+      for (let i = 0; i < arr.length; i += 3) {
+        const lx = arr[i], ly = arr[i + 1];
+        arr[i + 2] = Math.sin(lx * 0.62 + ly * 0.5 + t * 1.55 + row.water.phase) * 0.05 +
+                     Math.sin(lx * 1.15 - t * 1.05) * 0.028;
+      }
+      pos.needsUpdate = true;
+      row.water.geo.computeVertexNormals();
+    }
+    // spinning coins
+    for (const c of row.coins) {
+      if (c.taken) continue;
+      c.mesh.rotation.y += dt * 2.4;
+      c.mesh.position.y = c.mesh.userData.baseY + Math.sin(t * 2.6 + c.mesh.userData.phase) * 0.07;
+    }
+    // trains (spawned explicitly so the warning window is generous)
+    if (row.train) {
+      const tr = row.train;
+      if (!tr.mesh) {
+        tr.cool -= dt;
+        if (tr.cool <= 0) {
+          const built = buildTrain();
+          tr.halfLen = built.halfLen;
+          tr.mesh = built.group;
+          tr.x = -tr.dir * RAIL_SPAWN;      // enter from the far side, then cross the tracks
+          tr.mesh.rotation.y = tr.dir > 0 ? 0 : Math.PI;
+          tr.mesh.position.set(tr.x, 0, 0);
+          row.group.add(tr.mesh);
+        }
+      } else {
+        tr.x += tr.dir * tr.speed * dt;
+        tr.mesh.position.x = tr.x;
+        const out = Math.abs(tr.x) > RAIL_SPAWN + tr.halfLen * 2 + 4;
+        if (out) {
+          row.group.remove(tr.mesh);
+          tr.mesh = null;
+          tr.cool = rand(3.5, 9) - difficulty() * 2;
+          tr.dir = chance(0.5) ? 1 : -1;
+        }
+      }
+      // flashing crossing lights while a train is inbound
+      const timeToCenter = tr.mesh ? ((0 - tr.x) * tr.dir) / tr.speed : 99;
+      const warn = !!tr.mesh && timeToCenter > -0.35 && timeToCenter < 3.6;
+      const blink = warn && (Math.floor(game.t * 5) % 2 === 0);
+      row.warn.active = warn;
+      for (const lens of row.warn.lens) {
+        lens.material = blink ? mat(PAL.warn, { emissive: 0x7a0f14 }) : mat(PAL.warnOff);
+      }
+      if (warn && blink) sfx('bell');
+    }
+  }
+}
+
+/* --- main loop ----------------------------------------------------------- */
+let lastT = performance.now();
+function loop(now) {
+  const rawDt = (now - lastT) / 1000;
+  lastT = now;
+  const dt = Math.min(rawDt, 0.05);
+  game.t += dt;
+
+  updateWorld(dt);
+  updateRings(dt);
+  updateParticles(dt);
+
+  if (game.state === 'playing') {
+    if (player.alive) {
+      ensureWorld();                       // stream terrain in / recycle it behind us
+      updatePlayer(dt);
+    } else {
+      updateDeath(dt);                     // death animation, then gameOver()
+    }
+  }
+
+  updateSun();
+  updateCamera(dt);
+  renderer.render(scene, camera);
+}
+
+/* --- boot the game ------------------------------------------------------- */
+resize();
+buildStartingArea();
+ensureWorld();
+updateCamera(0.016, true);
+updateSun();
+renderer.setAnimationLoop(loop);
+requestAnimationFrame(() => bootEl.classList.add('hidden'));
+setTimeout(() => { if (bootEl) bootEl.style.display = 'none'; }, 700);
+
+// startScreen is visible by default; play/tap/space starts the run
+window.__crossy = {   // debug / test handles
+  player, score, game, rows, world, startGame, THREE,
+  scene, renderer, sun, cam, chicken,
+  get camera() { return camera; },
+};
+})();
+</script>
+</body>
+</html>
